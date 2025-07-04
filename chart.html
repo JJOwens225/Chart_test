@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Trading Chart Fluide</title>
+    <style>
+      body {
+        background: #0d1117;
+        color: white;
+        font-family: sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+      }
+      canvas {
+        background: #161b22;
+        border-radius: 10px;
+        border: 1px solid #444;
+      }
+      #tooltip {
+        position: absolute;
+        padding: 6px 12px;
+        background: rgba(0, 0, 0, 0.8);
+        color: #fff;
+        border-radius: 4px;
+        font-size: 14px;
+        pointer-events: none;
+        display: none;
+        white-space: nowrap;
+      }
+      .circle {
+        width: 50px;
+        height: 50px;
+        background: white;
+        border-radius: 25px;
+        cursor: pointer;
+      }
+      .none {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="tradingChart" width="800" height="400"></canvas>
+    <div id="tooltip"></div>
+    <div class="circle"></div>
+
+    <script>
+      const canvas = document.getElementById("tradingChart");
+      const ctx = canvas.getContext("2d");
+      const tooltip = document.getElementById("tooltip");
+
+      const width = canvas.width;
+      const height = canvas.height;
+      const margin = 40;
+
+      let data = [];
+      const maxPoints = 50;
+      let currentPrice = 120;
+      let currentColor = "#00ff99"; // vert par défaut
+
+      // Nouvelle méthode : accès public via gviz API
+      const sheetId = "1z_WrDvVdBD6Krz1KOpW0xcHhxP5GG4DlAWPtzJCxXxg";
+      const sheetName = "Indice Token";
+      const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(
+        sheetName
+      )}`;
+
+      async function generateData() {
+        try {
+          const res = await fetch(url);
+          const text = await res.text();
+          const json = JSON.parse(text.substring(47).slice(0, -2));
+          const valeur = parseFloat(json.table.rows[1].c[2].v); // Ligne 2, colonne C (donc `C2`)
+
+          if (!isNaN(valeur)) {
+            data.push(valeur);
+            if (data.length > maxPoints) data.shift();
+
+            if (valeur > currentPrice) {
+              currentColor = "#00ff99";
+            } else if (valeur < currentPrice) {
+              currentColor = "#ff5555";
+            }
+
+            currentPrice = valeur;
+          }
+        } catch (err) {
+          console.error("Erreur Google Sheets publique:", err);
+        }
+      }
+
+      function smoothLine(ctx, points, stepX, scaleY, minY) {
+        ctx.beginPath();
+        for (let i = 0; i < points.length - 1; i++) {
+          const x0 = margin + i * stepX;
+          const y0 = height - margin - (points[i] - minY) * scaleY;
+          const x1 = margin + (i + 1) * stepX;
+          const y1 = height - margin - (points[i + 1] - minY) * scaleY;
+          const cx = (x0 + x1) / 2;
+          ctx.quadraticCurveTo(x0, y0, cx, (y0 + y1) / 2);
+        }
+      }
+
+      function drawChart(mouseX = null) {
+        ctx.clearRect(0, 0, width, height);
+
+        const stepX = (width - margin * 2) / (maxPoints - 1);
+        const minY = Math.min(...data);
+        const maxY = Math.max(...data);
+        const scaleY = (height - margin * 2) / (maxY - minY);
+
+        ctx.beginPath();
+        ctx.moveTo(margin, height - margin - (data[0] - minY) * scaleY);
+        smoothLine(ctx, data, stepX, scaleY, minY);
+        ctx.strokeStyle = currentColor;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        const gradient = ctx.createLinearGradient(
+          0,
+          margin,
+          0,
+          height - margin
+        );
+        gradient.addColorStop(0, currentColor + "55");
+        gradient.addColorStop(1, currentColor + "00");
+        ctx.lineTo(width - margin, height - margin);
+        ctx.lineTo(margin, height - margin);
+        ctx.closePath();
+        ctx.fillStyle = gradient;
+        ctx.fill();
+
+        ctx.strokeStyle = "#444";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let i = 0; i <= 5; i++) {
+          const y = margin + i * ((height - margin * 2) / 5);
+          ctx.moveTo(margin, y);
+          ctx.lineTo(width - margin, y);
+        }
+        ctx.stroke();
+
+        if (mouseX !== null && data.length > 0) {
+          const step = stepX;
+          const index = Math.round((mouseX - margin) / step);
+          if (index >= 0 && index < data.length) {
+            const x = margin + index * step;
+            const y = height - margin - (data[index] - minY) * scaleY;
+
+            ctx.beginPath();
+            ctx.arc(x, y, 4, 0, Math.PI * 2);
+            ctx.fillStyle = currentColor;
+            ctx.fill();
+
+            tooltip.style.display = "block";
+            tooltip.style.left = `${x + canvas.offsetLeft + 10}px`;
+            tooltip.style.top = `${y + canvas.offsetTop - 30}px`;
+            tooltip.textContent = `Prix : ${data[index].toFixed(2)}`;
+          }
+        } else {
+          tooltip.style.display = "none";
+        }
+      }
+
+      canvas.addEventListener("mousemove", (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        drawChart(mouseX);
+      });
+      canvas.addEventListener("mouseleave", () => drawChart());
+
+      function animate() {
+        generateData();
+        drawChart();
+        setTimeout(animate, 60000);
+      }
+
+      animate();
+    </script>
+  </body>
+</html>
